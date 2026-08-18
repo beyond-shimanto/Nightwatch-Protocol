@@ -35,11 +35,56 @@ flashlight_tiles_radius = 25
 flashlight_radius = grid_tile_length * flashlight_tiles_radius
 flashlight_radius_squared = flashlight_radius ** 2
 
-walls = [[5,90,50,2.5, 75, (0,1,0)],
-         [40,42.5,55,2.5, 75, (0,1,0)],
-         [5,5,50,2.5, 75, (0,1,0)],
-         [10,50,2.5,25, 75, (0,1,0)],
-         [55,70,25,10, 30, (0,1,0)]]
+walls = []
+
+occupied_tiles_and_height_dict = {}
+
+def add_wall(wall_start_tile_x, wall_start_tile_y, wall_tile_width, wall_tile_height, wall_elevation_height, wall_color):
+    global walls, occupied_tiles_and_height_dict
+    walls.append([wall_start_tile_x, wall_start_tile_y, wall_tile_width, wall_tile_height, wall_elevation_height, wall_color])
+
+    cur_tile_y = wall_start_tile_y
+    while cur_tile_y < wall_start_tile_y + wall_tile_height:
+        cur_tile_x = wall_start_tile_x
+        while cur_tile_x < wall_start_tile_x + wall_tile_width:
+            occupied_tiles_and_height_dict[(cur_tile_x, cur_tile_y)] = wall_elevation_height
+            cur_tile_x += 1
+
+        cur_tile_y += 1
+
+    # print(occupied_tiles_and_height_dict)
+
+def is_tile_occupied(tile_x, tile_y):
+    return (tile_x, tile_y) in occupied_tiles_and_height_dict
+
+def is_pos_in_occupation(pos_x, pos_y, pos_z):
+    pos_x, pos_y = get_tile_from_pos((pos_x, pos_y))
+    if not (pos_x, pos_y) in occupied_tiles_and_height_dict:
+        return False
+    if occupied_tiles_and_height_dict[(pos_x, pos_y)] < pos_z:
+        return False
+    return True
+    
+
+def loadMap():
+    add_wall(5,90,50,2.5, 75, (0,1,0))
+    add_wall(40,42.5,55,2.5, 75, (0,1,0))
+    add_wall(5,5,50,2.5, 75, (0,1,0))
+    add_wall(10,50,2.5,25, 75, (0,1,0))
+    add_wall(55,70,25,10, 30, (0,1,0))
+
+def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
+    cur_x, cur_y, cur_z = player_pos
+    new_x = cur_x + movement_vector_x
+    new_y = cur_y + movement_vector_y
+    new_z = cur_z + movement_vector_z
+
+    if is_pos_in_occupation(new_x, new_y, new_z):
+        return
+    player_pos[0] = new_x
+    player_pos[1] = new_y
+    player_pos[2] = new_z
+
 
 def get_player_forward_vector():
     global player_angle
@@ -70,19 +115,22 @@ def should_objected_be_rendered(object_pos):
     object_distance_from_player_squared = get_distance_squared(player_pos, object_pos)
     return object_distance_from_player_squared < flashlight_radius_squared
 
-def get_object_color_brightness(distance_squared_from_player):
-    # return 1
-    res = (flashlight_radius_squared - distance_squared_from_player) / (flashlight_radius_squared + 2* distance_squared_from_player)
-    return res
+def get_tile_from_pos(pos):
+    init_x = - (grid_tile_length * grid_dimension[0]) / 2
+    init_y = - (grid_tile_length * grid_dimension[1]) / 2
 
-def get_brightness_adjusted_color(original_color, brightness):
-    return (original_color[0] * brightness, original_color[1] * brightness, original_color[2] * brightness)
+    pos_x, pos_y = pos
+
+    tile_x = int((pos_x - init_x)/grid_tile_length)
+    tile_y = int((pos_y - init_y)/grid_tile_length)
+
+    return (tile_x, tile_y)
 
 def drawCrosshair():
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    gluOrtho2D(0, 1000, 0, 800)
+    gluOrtho2D(0, window_width, 0, window_height)
 
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
@@ -92,13 +140,14 @@ def drawCrosshair():
 
     glBegin(GL_LINES)
 
+    cross_hair_len = 10
     # Horizontal
-    glVertex2f(490, 400)
-    glVertex2f(510, 400)
+    glVertex2f(window_width/2 - cross_hair_len, window_height/2)
+    glVertex2f(window_width/2 + cross_hair_len, window_height/2)
 
     # Vertical
-    glVertex2f(500, 390)
-    glVertex2f(500, 410)
+    glVertex2f(window_width/2 , window_height/2 - cross_hair_len)
+    glVertex2f(window_width/2 , window_height/2 + cross_hair_len)
 
     glEnd()
 
@@ -305,28 +354,31 @@ def keyboardListener(key, x, y):
 
     player_movement_vector_x, player_movement_vector_y = get_player_forward_vector()
 
-    if key == b'w':  
-        player_pos[0] += player_normal_movement_velocity * player_movement_vector_x * delta_time
-        player_pos[1] += player_normal_movement_velocity * player_movement_vector_y * delta_time
+    if key == b'w':
+        movement_vector_x = player_normal_movement_velocity * player_movement_vector_x * delta_time
+        movement_vector_y = player_normal_movement_velocity * player_movement_vector_y * delta_time
+        movement_vector_z = 0
+
+        move_player(movement_vector_x, movement_vector_y, movement_vector_z)
 
 
 
     if key == b's':
-        player_pos[0] -= player_normal_movement_velocity * player_movement_vector_x * delta_time
-        player_pos[1] -= player_normal_movement_velocity * player_movement_vector_y * delta_time
+        movement_vector_x = - player_normal_movement_velocity * player_movement_vector_x * delta_time
+        movement_vector_y = - player_normal_movement_velocity * player_movement_vector_y * delta_time
+        movement_vector_z = 0
+        move_player(movement_vector_x, movement_vector_y, movement_vector_z)
 
     if key == b'a':
-        left_movement_vector_x = - player_movement_vector_y
-        left_movement_vector_y = player_movement_vector_x
-        player_pos[0] += player_normal_movement_velocity * left_movement_vector_x * delta_time
-        player_pos[1] += player_normal_movement_velocity * left_movement_vector_y * delta_time
+        left_movement_vector_x = - player_movement_vector_y * player_normal_movement_velocity * delta_time
+        left_movement_vector_y = player_movement_vector_x * player_normal_movement_velocity * delta_time
+        move_player(left_movement_vector_x, left_movement_vector_y , 0)
 
 
     if key == b'd':
-        right_movement_vector_x = player_movement_vector_y
-        right_movement_vector_y = - player_movement_vector_x
-        player_pos[0] += player_normal_movement_velocity * right_movement_vector_x * delta_time
-        player_pos[1] += player_normal_movement_velocity * right_movement_vector_y * delta_time
+        right_movement_vector_x = player_movement_vector_y * player_normal_movement_velocity * delta_time
+        right_movement_vector_y = - player_movement_vector_x * player_normal_movement_velocity * delta_time
+        move_player(right_movement_vector_x, right_movement_vector_y, 0)
 
     # # Toggle cheat mode (C key)
     # if key == b'c':
@@ -476,6 +528,9 @@ def showScreen():
 
 # Main function to set up OpenGL window and loop
 def main():
+
+    loadMap()
+
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)  # Double buffering, RGB color, depth test
     glutInitWindowSize(window_width, window_height)  # Window size
@@ -485,6 +540,8 @@ def main():
     glEnable(GL_DEPTH_TEST)
     glutSetCursor(GLUT_CURSOR_NONE)
     glutWarpPointer(500,400)
+
+
 
     glutDisplayFunc(showScreen)  # Register display function
     glutKeyboardFunc(keyboardListener)  # Register keyboard listener
