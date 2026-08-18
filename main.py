@@ -4,14 +4,17 @@ from OpenGL.GLU import *
 import time
 import math
 
+window_width = 1440
+window_height = 750
+
 # Camera-related variables
-camera_mode = 'tps'
+camera_mode = 'fps'
 fovY = 75  # Field of view
 camera_pitch = 0
 
 
-last_mouse_x = 500
-last_mouse_y = 400
+last_mouse_x = window_width / 2
+last_mouse_y = window_height / 2
 mouse_sensitivity = 0.4
 
 current_time = time.time()
@@ -399,7 +402,7 @@ def setupCamera():
     glMatrixMode(GL_PROJECTION)  # Switch to projection matrix mode
     glLoadIdentity()  # Reset the projection matrix
     # Set up a perspective projection (field of view, aspect ratio, near clip, far clip)
-    gluPerspective(fovY, 1.25, 0.1, 1500) # Think why aspect ration is 1.25?
+    gluPerspective(fovY, window_width/ window_height, 0.1, 1500) # Think why aspect ration is 1.25?
     glMatrixMode(GL_MODELVIEW)  # Switch to model-view matrix mode
     glLoadIdentity()  # Reset the model-view matrix
 
@@ -452,7 +455,7 @@ def showScreen():
     # Clear color and depth buffers
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glLoadIdentity()  # Reset modelview matrix
-    glViewport(0, 0, 1000, 800)  # Set viewport size
+    glViewport(0, 0, window_width, window_height)  # Set viewport size
 
     setupCamera()  # Configure camera perspective
 
@@ -475,7 +478,7 @@ def showScreen():
 def main():
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)  # Double buffering, RGB color, depth test
-    glutInitWindowSize(1000, 800)  # Window size
+    glutInitWindowSize(window_width, window_height)  # Window size
     glutInitWindowPosition(0, 0)  # Window position
     wind = glutCreateWindow(b"3D OpenGL Intro")  # Create the window
 
