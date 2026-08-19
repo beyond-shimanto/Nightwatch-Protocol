@@ -231,45 +231,53 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
 def render_tiles():
     global tiles_dict
     
-    arena_start_pos_x = - (tile_length * grid_dimension[0]) / 2
-    arena_start_pos_y = - (tile_length * grid_dimension[1]) / 2
+    world_start_pos_x = - (tile_length * grid_dimension[0]) / 2
+    world_start_pos_y = - (tile_length * grid_dimension[1]) / 2
 
     tileoid_length = tile_length / tile_res
 
-    for tile_pos, tile_info_dict in tiles_dict.items():
-        tile_pos_x, tile_pos_y, tile_pos_z = tile_pos
+    render_center_x, render_center_y, render_center_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
+    render_radius = int(flashlight_radius / tile_length)
+    for x in range(render_center_x - render_radius, render_center_x + render_radius + 1):
+        for y in range(render_center_y - render_radius, render_center_y + render_radius + 1):
+            for z in range(render_center_z - render_radius, render_center_z + render_radius + 1):
+                if (x,y,z) not in tiles_dict:
+                    continue
 
-        tile_start_x = arena_start_pos_x + tile_pos_x * tile_length
-        tile_end_x = tile_start_x + tile_length
+                tile_pos_x, tile_pos_y, tile_pos_z = (x,y,z)
+                tile_info_dict = tiles_dict[(x,y,z)]
 
-        tile_start_y = arena_start_pos_y + tile_pos_y * tile_length
-        tile_end_y = tile_start_y + tile_length
+                tile_start_x = world_start_pos_x + tile_pos_x * tile_length
+                tile_end_x = tile_start_x + tile_length
 
-        tile_start_z = tile_pos_z * tile_length
-        tile_end_z = tile_start_z + tile_length
+                tile_start_y = world_start_pos_y + tile_pos_y * tile_length
+                tile_end_y = tile_start_y + tile_length
 
-        cur_y = tile_start_y
+                tile_start_z = tile_pos_z * tile_length
+                tile_end_z = tile_start_z + tile_length
 
-        while cur_y < tile_end_y:
-            cur_x = tile_start_x
+                cur_y = tile_start_y
 
-            while cur_x < tile_end_x:
-                cur_z = tile_start_z
+                while cur_y < tile_end_y:
+                    cur_x = tile_start_x
 
-                while cur_z < tile_end_z:
+                    while cur_x < tile_end_x:
+                        cur_z = tile_start_z
 
-                    if should_objected_be_rendered((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)):
-                        tileoid_color_r, tileoid_color_g, tileoid_color_b = get_adjusted_object_color((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2), tile_info_dict['color'])
-                        glPushMatrix()
-                        glColor3f(tileoid_color_r, tileoid_color_g , tileoid_color_b)
-                        glTranslatef(cur_x + tileoid_length / 2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)
-                        glScale(tileoid_length, tileoid_length, tileoid_length)
-                        glutSolidCube(1)
-                        glPopMatrix()
+                        while cur_z < tile_end_z:
 
-                    cur_z += tileoid_length
-                cur_x += tileoid_length
-            cur_y += tileoid_length
+                            if should_objected_be_rendered((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)):
+                                tileoid_color_r, tileoid_color_g, tileoid_color_b = get_adjusted_object_color((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2), tile_info_dict['color'])
+                                glPushMatrix()
+                                glColor3f(tileoid_color_r, tileoid_color_g , tileoid_color_b)
+                                glTranslatef(cur_x + tileoid_length / 2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)
+                                glScale(tileoid_length, tileoid_length, tileoid_length)
+                                glutSolidCube(1)
+                                glPopMatrix()
+
+                            cur_z += tileoid_length
+                        cur_x += tileoid_length
+                    cur_y += tileoid_length
 
 def drawPlayer():
     player_x, player_y, player_z = player_pos
