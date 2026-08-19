@@ -13,19 +13,28 @@ fovY = 75  # Field of view
 camera_pitch = 0
 
 
-last_mouse_x = window_width / 2
-last_mouse_y = window_height / 2
+mouse_center_x = window_width // 2
+mouse_center_y = window_height // 2
+cursor_locked = True
 mouse_sensitivity = 0.4
 
 current_time = time.time()
 delta_time = None
 
-player_pos = [0,100,50]
+player_pos = [0,100,100]
 player_angle = 0
 
 player_normal_movement_velocity = 200
-player_accelarated_movement_velocity = 100
+player_forward_velocity_multiplier = 0.0
+player_sideward_velocity_multiplier = 0.0
+player_upward_velocity_multiplier = 0.0
+player_acceleration = 4
+player_gravity = 45
+player_jump_force = 26
 
+movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
+
+world_ground_level = 40
 grid_dimension = (100,100)
 tile_length = 10
 tile_res = 1
@@ -59,7 +68,7 @@ def draw_wall(wall_start_tile_x, wall_start_tile_y, wall_start_tile_z, wall_tile
     while cur_tile_y < wall_start_tile_y + wall_tile_length:
         cur_tile_z = wall_start_tile_z
         while cur_tile_z < wall_start_tile_z + wall_tile_height:
-            draw_tile(wall_start_tile_x + wall_tile_width, cur_tile_y, cur_tile_z, wall_info_dict)
+            draw_tile(wall_start_tile_x + wall_tile_width - 1, cur_tile_y, cur_tile_z, wall_info_dict)
             cur_tile_z += 1
         cur_tile_y += 1
 
@@ -77,7 +86,7 @@ def draw_wall(wall_start_tile_x, wall_start_tile_y, wall_start_tile_z, wall_tile
     while cur_tile_x < wall_start_tile_x + wall_tile_width:
         cur_tile_z = wall_start_tile_z
         while cur_tile_z < wall_start_tile_z + wall_tile_height:
-            draw_tile(cur_tile_x, wall_start_tile_y + wall_tile_length, cur_tile_z, wall_info_dict)
+            draw_tile(cur_tile_x, wall_start_tile_y + wall_tile_length - 1, cur_tile_z, wall_info_dict)
             cur_tile_z += 1
         cur_tile_x += 1
 
@@ -122,11 +131,11 @@ def get_tile_from_pos(pos_x, pos_y, pos_z):
 
 def loadMap():
     draw_floor()
-    # draw_wall(5,90,0,50,2, 75, {'color': (0,1,0)})
-    # draw_wall(40,42,0,55,2, 75, {'color': (0,1,0)})
-    # draw_wall(5,5,0,50,2, 75, {'color': (0,1,0)})
-    # draw_wall(10,50,0,2,25, 75, {'color': (0,1,0)})
-    # draw_wall(55,70,0,25,10, 30, {'color': (0,1,0)})
+    draw_wall(5,90,0,50,4, 12, {'color': (0,1,0)})
+    draw_wall(40,42,0,55,4, 5, {'color': (0,1,0)})
+    draw_wall(5,5,0,5,2, 12, {'color': (0,1,0)})
+    draw_wall(10,50,0,2,25, 12, {'color': (0,1,0)})
+    draw_wall(55,70,0,25,10, 12, {'color': (0,1,0)})
 
 def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     cur_x, cur_y, cur_z = player_pos
@@ -140,6 +149,9 @@ def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     player_pos[0] = new_x
     player_pos[1] = new_y
     player_pos[2] = new_z
+
+def is_player_grounded():
+    return player_pos[2] <= world_ground_level
 
 def get_player_forward_vector():
     global player_angle
@@ -163,7 +175,7 @@ def get_distance_squared(pos_1, pos_2):
 
 def get_adjusted_object_color(object_position, preferred_color):
     distance_from_player_squared = get_distance_squared(object_position, player_pos)
-    brightness_value = (flashlight_radius_squared - distance_from_player_squared) / (flashlight_radius_squared + 2* distance_from_player_squared)
+    brightness_value = (flashlight_radius_squared - distance_from_player_squared) / (flashlight_radius_squared + 0.75* distance_from_player_squared)
     return (preferred_color[0] * brightness_value, preferred_color[1] * brightness_value, preferred_color[2] * brightness_value)
 
 def should_objected_be_rendered(object_pos):
@@ -289,40 +301,109 @@ def drawPlayer():
     glutSolidCube(20)
     glPopMatrix()
     
+def handlePlayerMovement():
+    global movement_keys_pressed, player_acceleration, player_forward_velocity_multiplier, player_sideward_velocity_multiplier
+    global player_pos, world_ground_level, player_upward_velocity_multiplier
+
+    player_movement_vector_x, player_movement_vector_y = get_player_forward_vector()
+
+    key_pressed = False
+
+    if movement_keys_pressed['w']:
+        key_pressed = True
+        player_forward_velocity_multiplier = min(player_forward_velocity_multiplier + player_acceleration * delta_time, 1)
+
+
+    if movement_keys_pressed['s']:
+        key_pressed = True
+        player_forward_velocity_multiplier = max(player_forward_velocity_multiplier - player_acceleration * delta_time, -1)
+
+    if movement_keys_pressed['a']:
+        key_pressed = True
+        player_sideward_velocity_multiplier = min(player_sideward_velocity_multiplier + player_acceleration * delta_time, 1)
+
+    if movement_keys_pressed['d']:
+        key_pressed = True
+        player_sideward_velocity_multiplier = max(player_sideward_velocity_multiplier - player_acceleration * delta_time, -1)
+
+    if movement_keys_pressed['space'] and is_player_grounded():
+        player_upward_velocity_multiplier = player_jump_force
+    #deceleraton
+    if not key_pressed:
+
+        if player_forward_velocity_multiplier < 0:
+            player_forward_velocity_multiplier += player_acceleration * delta_time
+            if player_forward_velocity_multiplier > 0: 
+                player_forward_velocity_multiplier = 0
+
+        elif player_forward_velocity_multiplier > 0:
+            player_forward_velocity_multiplier -= player_acceleration * delta_time
+            if player_forward_velocity_multiplier < 0:
+                player_forward_velocity_multiplier = 0
+
+        if player_sideward_velocity_multiplier < 0:
+            player_sideward_velocity_multiplier += player_acceleration * delta_time
+            if player_sideward_velocity_multiplier > 0: 
+                player_sideward_velocity_multiplier = 0
+
+        elif player_sideward_velocity_multiplier > 0:
+            player_sideward_velocity_multiplier -= player_acceleration * delta_time
+            if player_sideward_velocity_multiplier < 0:
+                player_sideward_velocity_multiplier = 0
+
+    #forward_movement
+    movement_vector_x = player_normal_movement_velocity * player_movement_vector_x * delta_time * player_forward_velocity_multiplier
+    movement_vector_y = player_normal_movement_velocity * player_movement_vector_y * delta_time * player_forward_velocity_multiplier
+    movement_vector_z = 0
+    move_player(movement_vector_x, movement_vector_y, movement_vector_z)
+
+    
+    #sideways_movement
+    left_movement_vector_x = - player_movement_vector_y * player_normal_movement_velocity * delta_time * player_sideward_velocity_multiplier
+    left_movement_vector_y = player_movement_vector_x * player_normal_movement_velocity * delta_time * player_sideward_velocity_multiplier
+    move_player(left_movement_vector_x, left_movement_vector_y , 0)
+
+    #gravity
+    if not is_player_grounded():
+        player_upward_velocity_multiplier -= player_gravity * delta_time
+        if player_pos[2] < world_ground_level:
+            player_pos[2] = world_ground_level
+
+    if is_player_grounded() and player_upward_velocity_multiplier < 0:
+        player_upward_velocity_multiplier = 0
+
+    move_player(0, 0, 9 * player_upward_velocity_multiplier * delta_time)
+
+
 def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
     """
-    global player_pos, camera_mode
+    global player_pos, camera_mode, cursor_locked, movement_keys_pressed
 
     player_movement_vector_x, player_movement_vector_y = get_player_forward_vector()
 
+
+
+    if key == b'\x1b':  # ESC
+        cursor_locked = not cursor_locked
+        if not cursor_locked:
+            glutSetCursor(GLUT_CURSOR_LEFT_ARROW)
+        else:
+            glutSetCursor(GLUT_CURSOR_NONE)
+            glutWarpPointer(mouse_center_x, mouse_center_y)
+
     if key == b'w':
-        movement_vector_x = player_normal_movement_velocity * player_movement_vector_x * delta_time
-        movement_vector_y = player_normal_movement_velocity * player_movement_vector_y * delta_time
-        movement_vector_z = 0
-
-        move_player(movement_vector_x, movement_vector_y, movement_vector_z)
-
-
-
+        movement_keys_pressed['w'] = True
     if key == b's':
-        movement_vector_x = - player_normal_movement_velocity * player_movement_vector_x * delta_time
-        movement_vector_y = - player_normal_movement_velocity * player_movement_vector_y * delta_time
-        movement_vector_z = 0
-        move_player(movement_vector_x, movement_vector_y, movement_vector_z)
-
+        movement_keys_pressed['s'] = True
     if key == b'a':
-        left_movement_vector_x = - player_movement_vector_y * player_normal_movement_velocity * delta_time
-        left_movement_vector_y = player_movement_vector_x * player_normal_movement_velocity * delta_time
-        move_player(left_movement_vector_x, left_movement_vector_y , 0)
-
-
+        movement_keys_pressed['a'] = True
     if key == b'd':
-        right_movement_vector_x = player_movement_vector_y * player_normal_movement_velocity * delta_time
-        right_movement_vector_y = - player_movement_vector_x * player_normal_movement_velocity * delta_time
-        move_player(right_movement_vector_x, right_movement_vector_y, 0)
+        movement_keys_pressed['d'] = True
 
+    if key == b' ':
+        movement_keys_pressed['space'] = True
     # # Toggle cheat mode (C key)
     # if key == b'c':
 
@@ -335,15 +416,30 @@ def keyboardListener(key, x, y):
     # # Reset the game if R key is pressed
     # if key == b'r':
 
+def keyboardUpListener(key, x, y):
+    if key == b'w':
+        movement_keys_pressed['w'] = False
+
+    if key == b's':
+        movement_keys_pressed['s'] = False
+
+    if key == b'a':
+        movement_keys_pressed['a'] = False
+
+    if key == b'd':
+        movement_keys_pressed['d'] = False
+    if key == b' ':
+        movement_keys_pressed['space'] = False
+
 def mouseMotionListener(x, y):
     global camera_pitch, player_angle
     global last_mouse_x, last_mouse_y
     global mouse_sensitivity
 
-    dy = y - last_mouse_y
-    dx = x - last_mouse_x
+    dy = y - mouse_center_y
+    dx = x - mouse_center_x
 
-    if not delta_time == None: 
+    if not delta_time == None and cursor_locked: 
         camera_pitch -= dy * mouse_sensitivity * 0.5 * (delta_time * 10)
         player_angle -= dx * mouse_sensitivity * (delta_time * 17)
 
@@ -354,8 +450,9 @@ def mouseMotionListener(x, y):
     elif camera_pitch > 60:
         camera_pitch = 60
 
-    last_mouse_x = x
-    last_mouse_y = y
+    if cursor_locked:
+        glutWarpPointer(mouse_center_x, mouse_center_y)
+        
 
 
 def specialKeyListener(key, x, y):
@@ -435,6 +532,8 @@ def idle():
     delta_time = new_time - current_time
     current_time = new_time
 
+    handlePlayerMovement()
+
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -474,13 +573,17 @@ def main():
     wind = glutCreateWindow(b"3D OpenGL Intro")  # Create the window
 
     glEnable(GL_DEPTH_TEST)
+
+    global cursor_locked
+    cursor_locked = True
+    glutWarpPointer(mouse_center_x, mouse_center_y)
     glutSetCursor(GLUT_CURSOR_NONE)
-    glutWarpPointer(500,400)
 
 
 
     glutDisplayFunc(showScreen)  # Register display function
     glutKeyboardFunc(keyboardListener)  # Register keyboard listener
+    glutKeyboardUpFunc(keyboardUpListener)
     glutSpecialFunc(specialKeyListener)
     glutMouseFunc(mouseListener)
     glutPassiveMotionFunc(mouseMotionListener)
