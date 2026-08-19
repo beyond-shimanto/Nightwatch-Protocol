@@ -21,8 +21,10 @@ mouse_sensitivity = 0.4
 current_time = time.time()
 delta_time = None
 
-player_pos = [0,100,100]
+player_pos = [0,100,200]
 player_angle = 0
+player_width = 20
+player_height = 40
 
 player_normal_movement_velocity = 200
 player_forward_velocity_multiplier = 0.0
@@ -34,7 +36,7 @@ player_jump_force = 26
 
 movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
 
-world_ground_level = 40
+world_ground_level = 25
 grid_dimension = (100,100)
 tile_length = 10
 tile_res = 1
@@ -44,9 +46,14 @@ flashlight_tiles_radius = 25
 flashlight_radius = tile_length * flashlight_tiles_radius
 flashlight_radius_squared = flashlight_radius ** 2
 
-walls = []
+weapon_bullet_ray_origin_pos = [0,0,0]
+weapon_muzzle_pos = [0,0,0]
+
+
 
 tiles_dict = {}
+
+bullets = []
 
 def draw_tile(tile_x, tile_y, tile_z, tile_info_dict):
     tiles_dict[(tile_x, tile_y, tile_z)] = tile_info_dict
@@ -131,11 +138,11 @@ def get_tile_from_pos(pos_x, pos_y, pos_z):
 
 def loadMap():
     draw_floor()
-    draw_wall(5,90,0,50,4, 12, {'color': (0,1,0)})
+    draw_wall(5,90,0,50,4, 15, {'color': (0,1,0)})
     draw_wall(40,42,0,55,4, 5, {'color': (0,1,0)})
-    draw_wall(5,5,0,5,2, 12, {'color': (0,1,0)})
-    draw_wall(10,50,0,2,25, 12, {'color': (0,1,0)})
-    draw_wall(55,70,0,25,10, 12, {'color': (0,1,0)})
+    draw_wall(5,5,0,5,2, 15, {'color': (1,0,0)})
+    draw_wall(10,50,0,2,25, 15, {'color': (0,1,0)})
+    draw_wall(55,70,0,25,10, 15, {'color': (0,1,0)})
 
 def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     cur_x, cur_y, cur_z = player_pos
@@ -143,15 +150,52 @@ def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     new_y = cur_y + movement_vector_y
     new_z = cur_z + movement_vector_z
 
-    tile_x, tile_y, tile_z = get_tile_from_pos(new_x, new_y, new_z)
+    #detect collision left side of body
+    x = new_x + player_width / 2
+    y = new_y
+    z = new_z
+
+    tile_x, tile_y, tile_z = get_tile_from_pos(x, y, z)
     if is_tile_occupied(tile_x, tile_y, tile_z):
         return
+
+    #detect collision right side of body
+    x = new_x - player_width / 2
+    y = new_y
+    z = new_z
+
+    tile_x, tile_y, tile_z = get_tile_from_pos(x, y, z)
+    if is_tile_occupied(tile_x, tile_y, tile_z):
+        return
+
+    #detect collision front side of body
+    x = new_x
+    y = new_y - player_width / 2
+    z = new_z
+
+    tile_x, tile_y, tile_z = get_tile_from_pos(x, y, z)
+    if is_tile_occupied(tile_x, tile_y, tile_z):
+        return
+
+    #detect collision back side of body
+    x = new_x
+    y = new_y + player_width / 2
+    z = new_z
+
+    tile_x, tile_y, tile_z = get_tile_from_pos(x, y, z)
+    if is_tile_occupied(tile_x, tile_y, tile_z):
+        return
+
+
     player_pos[0] = new_x
     player_pos[1] = new_y
     player_pos[2] = new_z
 
 def is_player_grounded():
-    return player_pos[2] <= world_ground_level
+    # return player_pos[2] <= world_ground_level
+
+    tile_x, tile_y, tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2] - player_height)
+    return is_tile_occupied(tile_x, tile_y, tile_z) or player_pos[2] - player_height <= world_ground_level
 
 def get_player_forward_vector():
     global player_angle
@@ -181,6 +225,10 @@ def get_adjusted_object_color(object_position, preferred_color):
 def should_objected_be_rendered(object_pos):
     object_distance_from_player_squared = get_distance_squared(player_pos, object_pos)
     return object_distance_from_player_squared < flashlight_radius_squared
+
+def should_illuminated_objected_be_rendered(object_pos):
+    object_distance_from_player_squared = get_distance_squared(player_pos, object_pos)
+    return object_distance_from_player_squared < flashlight_radius_squared * 4
 
 def drawCrosshair():
     glMatrixMode(GL_PROJECTION)
@@ -366,8 +414,8 @@ def handlePlayerMovement():
     #gravity
     if not is_player_grounded():
         player_upward_velocity_multiplier -= player_gravity * delta_time
-        if player_pos[2] < world_ground_level:
-            player_pos[2] = world_ground_level
+        if player_pos[2] - player_height < world_ground_level:
+            player_pos[2] = world_ground_level + player_height
 
     if is_player_grounded() and player_upward_velocity_multiplier < 0:
         player_upward_velocity_multiplier = 0
@@ -477,8 +525,9 @@ def mouseListener(button, state, x, y):
     """
     Handles mouse inputs for firing bullets (left click) and toggling camera mode (right click).
     """
-        # # Left mouse button fires a bullet
-        # if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+    # Left mouse button fires a bullet
+    if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+        shoot_bullet()
 
         # # Right mouse button toggles camera tracking mode
         # if button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
@@ -489,6 +538,8 @@ def setupCamera():
     Configures the camera's projection and view settings.
     Uses a perspective projection and positions the camera to look at the target.
     """
+    global weapon_bullet_ray_origin_pos
+
     glMatrixMode(GL_PROJECTION)  # Switch to projection matrix mode
     glLoadIdentity()  # Reset the projection matrix
     # Set up a perspective projection (field of view, aspect ratio, near clip, far clip)
@@ -505,6 +556,7 @@ def setupCamera():
         camera_pos_x = player_x + camera_pos_offset * player_forward_vector_x
         camera_pos_y = player_y + camera_pos_offset * player_forward_vector_y
         camera_pos_z = player_z + 50
+        weapon_bullet_ray_origin_pos = [camera_pos_x, camera_pos_y, camera_pos_z]
 
     if camera_mode == 'tps':
         camera_pos_offset = - 75
@@ -512,6 +564,7 @@ def setupCamera():
         camera_pos_x = player_x + camera_pos_offset * player_forward_vector_x
         camera_pos_y = player_y + camera_pos_offset * player_forward_vector_y
         camera_pos_z = player_z + 70
+        weapon_bullet_ray_origin_pos = [camera_pos_x, camera_pos_y, camera_pos_z]
 
     camera_look_at_x = player_x + camera_lookAt_offset * player_aim_vector_x
     camera_look_at_y = player_y + camera_lookAt_offset * player_aim_vector_y
@@ -521,6 +574,75 @@ def setupCamera():
               camera_look_at_x, camera_look_at_y, camera_look_at_z,  # Look-at target
               0, 0, 1)  # Up vector (z-axis)
 
+def get_crosshair_target():
+    aim_x, aim_y, aim_z = get_player_aim_vector()
+
+    ray_origin_x, ray_origin_y, ray_origin_z = weapon_bullet_ray_origin_pos
+    aim_distance = 500
+
+    target_x = ray_origin_x + aim_x * aim_distance
+    target_y = ray_origin_y + aim_y * aim_distance
+    target_z = ray_origin_z + aim_z * aim_distance
+
+    return (target_x, target_y, target_z)
+
+def shoot_bullet():
+    global bullets
+    target_x, target_y, target_z = get_crosshair_target()
+
+    muzzle_x, muzzle_y, muzzle_z = weapon_muzzle_pos
+
+    direction_x = target_x - muzzle_x
+    direction_y = target_y - muzzle_y
+    direction_z = target_z - muzzle_z
+
+    length = (direction_x ** 2 +direction_y ** 2 +direction_z ** 2) ** 0.5
+
+    direction_x /= length
+    direction_y /= length
+    direction_z /= length
+
+    bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10}
+
+    bullets.append(bullet)
+
+def move_bullets():
+
+    global bullets
+    for bullet in bullets:
+
+        bullet['pos'][0] += bullet['direction'][0] * bullet['speed'] * delta_time * 100
+        bullet['pos'][1] += bullet['direction'][1] * bullet['speed'] * delta_time * 100
+        bullet['pos'][2] += bullet['direction'][2] * bullet['speed'] * delta_time * 100
+
+def draw_bullets():
+
+    for bullet in bullets:
+        x, y, z = bullet['pos']
+        if should_illuminated_objected_be_rendered((x,y,z)):
+
+            glPushMatrix()
+            glColor3f(1, 1, 0)
+            glTranslatef(x, y, z)
+            glutSolidSphere(5, 10, 10)
+            glPopMatrix()
+
+def updateWeaponMuzzlePosition():
+    global player_pos, weapon_muzzle_pos
+    weapon_lenth = 80
+    weapon_side_offset = -50
+    player_forward_x, player_forward_y = get_player_forward_vector()
+    muzzle_x = player_pos[0] + player_forward_x * weapon_lenth
+    muzzle_y = player_pos[1] + player_forward_y * weapon_lenth
+
+    player_perpendicular_x = player_forward_y
+    player_perpendicular_y = - player_forward_x
+    muzzle_x += player_perpendicular_x * weapon_side_offset
+    muzzle_y += player_perpendicular_y * weapon_side_offset
+
+    muzzle_z = player_pos[2] - player_height / 2
+
+    weapon_muzzle_pos = [muzzle_x, muzzle_y, muzzle_z]
 
 def idle():
     """
@@ -533,7 +655,8 @@ def idle():
     current_time = new_time
 
     handlePlayerMovement()
-
+    updateWeaponMuzzlePosition()
+    move_bullets()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -552,6 +675,8 @@ def showScreen():
     setupCamera()  # Configure camera perspective
 
     render_tiles()
+    drawPlayer()
+    draw_bullets()
 
     # Display game info text at a fixed screen position
     draw_text(10, 770, f"A Random Fixed Position Text")
