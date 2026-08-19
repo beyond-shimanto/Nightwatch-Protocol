@@ -20,58 +20,113 @@ mouse_sensitivity = 0.4
 current_time = time.time()
 delta_time = None
 
-player_pos = [0,0,0]
+player_pos = [0,100,50]
 player_angle = 0
 
 player_normal_movement_velocity = 200
 player_accelarated_movement_velocity = 100
 
 grid_dimension = (100,100)
-grid_tile_length = 10
-grid_tile_res = 1
+tile_length = 10
+tile_res = 1
 grid_color = [0.2,0.4,0.4]
 wall_cubeoid_res = 2
 flashlight_tiles_radius = 25
-flashlight_radius = grid_tile_length * flashlight_tiles_radius
+flashlight_radius = tile_length * flashlight_tiles_radius
 flashlight_radius_squared = flashlight_radius ** 2
 
 walls = []
 
-occupied_tiles_and_height_dict = {}
+tiles_dict = {}
 
-def add_wall(wall_start_tile_x, wall_start_tile_y, wall_tile_width, wall_tile_height, wall_elevation_height, wall_color):
-    global walls, occupied_tiles_and_height_dict
-    walls.append([wall_start_tile_x, wall_start_tile_y, wall_tile_width, wall_tile_height, wall_elevation_height, wall_color])
+def draw_tile(tile_x, tile_y, tile_z, tile_info_dict):
+    tiles_dict[(tile_x, tile_y, tile_z)] = tile_info_dict
 
+def draw_wall(wall_start_tile_x, wall_start_tile_y, wall_start_tile_z, wall_tile_width, wall_tile_length, wall_tile_height, wall_info_dict):
+    global tiles_dict
+
+    #right wall
     cur_tile_y = wall_start_tile_y
-    while cur_tile_y < wall_start_tile_y + wall_tile_height:
-        cur_tile_x = wall_start_tile_x
-        while cur_tile_x < wall_start_tile_x + wall_tile_width:
-            occupied_tiles_and_height_dict[(cur_tile_x, cur_tile_y)] = wall_elevation_height
-            cur_tile_x += 1
-
+    while cur_tile_y < wall_start_tile_y + wall_tile_length:
+        cur_tile_z = wall_start_tile_z
+        while cur_tile_z < wall_start_tile_z + wall_tile_height:
+            draw_tile(wall_start_tile_x, cur_tile_y, cur_tile_z, wall_info_dict)
+            cur_tile_z += 1
         cur_tile_y += 1
 
-    # print(occupied_tiles_and_height_dict)
+    #left wall
+    cur_tile_y = wall_start_tile_y
+    while cur_tile_y < wall_start_tile_y + wall_tile_length:
+        cur_tile_z = wall_start_tile_z
+        while cur_tile_z < wall_start_tile_z + wall_tile_height:
+            draw_tile(wall_start_tile_x + wall_tile_width, cur_tile_y, cur_tile_z, wall_info_dict)
+            cur_tile_z += 1
+        cur_tile_y += 1
 
-def is_tile_occupied(tile_x, tile_y):
-    return (tile_x, tile_y) in occupied_tiles_and_height_dict
+    #top wall
+    cur_tile_x = wall_start_tile_x
+    while cur_tile_x < wall_start_tile_x + wall_tile_width:
+        cur_tile_z = wall_start_tile_z
+        while cur_tile_z < wall_start_tile_z + wall_tile_height:
+            draw_tile(cur_tile_x, wall_start_tile_y, cur_tile_z, wall_info_dict)
+            cur_tile_z += 1
+        cur_tile_x += 1
 
-def is_pos_in_occupation(pos_x, pos_y, pos_z):
-    pos_x, pos_y = get_tile_from_pos((pos_x, pos_y))
-    if not (pos_x, pos_y) in occupied_tiles_and_height_dict:
-        return False
-    if occupied_tiles_and_height_dict[(pos_x, pos_y)] < pos_z:
-        return False
-    return True
+    #bottom wall
+    cur_tile_x = wall_start_tile_x
+    while cur_tile_x < wall_start_tile_x + wall_tile_width:
+        cur_tile_z = wall_start_tile_z
+        while cur_tile_z < wall_start_tile_z + wall_tile_height:
+            draw_tile(cur_tile_x, wall_start_tile_y + wall_tile_length, cur_tile_z, wall_info_dict)
+            cur_tile_z += 1
+        cur_tile_x += 1
+
+
+    #floor
+    cur_tile_y = wall_start_tile_y
+    while cur_tile_y < wall_start_tile_y + wall_tile_length:
+        cur_tile_x = wall_start_tile_x
+        while cur_tile_x < wall_start_tile_x + wall_tile_width:
+            draw_tile(cur_tile_x, cur_tile_y, wall_start_tile_z, wall_info_dict)
+            cur_tile_x += 1
+        cur_tile_y += 1
+
+
+    #ceiling
+    cur_tile_y = wall_start_tile_y
+    while cur_tile_y < wall_start_tile_y + wall_tile_length:
+        cur_tile_x = wall_start_tile_x
+        while cur_tile_x < wall_start_tile_x + wall_tile_width:
+            draw_tile(cur_tile_x, cur_tile_y, wall_start_tile_z + wall_tile_height, wall_info_dict)
+            cur_tile_x += 1
+        cur_tile_y +=1
+
+
+def draw_floor():
+    for x in range(grid_dimension[0]):
+        for y in range(grid_dimension[1]):
+            draw_tile(x, y, 0, {'color': grid_color})
+
+def is_tile_occupied(tile_x, tile_y, tile_z):
+    return (tile_x, tile_y, tile_z) in tiles_dict
+
+def get_tile_from_pos(pos_x, pos_y, pos_z):
+    init_x = - (tile_length * grid_dimension[0]) / 2
+    init_y = - (tile_length * grid_dimension[1]) / 2
     
+    tile_x = int((pos_x - init_x)/tile_length)
+    tile_y = int((pos_y - init_y)/tile_length)
+    tile_z = int(pos_z / tile_length)
+
+    return (tile_x, tile_y, tile_z)
 
 def loadMap():
-    add_wall(5,90,50,2.5, 75, (0,1,0))
-    add_wall(40,42.5,55,2.5, 75, (0,1,0))
-    add_wall(5,5,50,2.5, 75, (0,1,0))
-    add_wall(10,50,2.5,25, 75, (0,1,0))
-    add_wall(55,70,25,10, 30, (0,1,0))
+    draw_floor()
+    # draw_wall(5,90,0,50,2, 75, {'color': (0,1,0)})
+    # draw_wall(40,42,0,55,2, 75, {'color': (0,1,0)})
+    # draw_wall(5,5,0,50,2, 75, {'color': (0,1,0)})
+    # draw_wall(10,50,0,2,25, 75, {'color': (0,1,0)})
+    # draw_wall(55,70,0,25,10, 30, {'color': (0,1,0)})
 
 def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     cur_x, cur_y, cur_z = player_pos
@@ -79,12 +134,12 @@ def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     new_y = cur_y + movement_vector_y
     new_z = cur_z + movement_vector_z
 
-    if is_pos_in_occupation(new_x, new_y, new_z):
+    tile_x, tile_y, tile_z = get_tile_from_pos(new_x, new_y, new_z)
+    if is_tile_occupied(tile_x, tile_y, tile_z):
         return
     player_pos[0] = new_x
     player_pos[1] = new_y
     player_pos[2] = new_z
-
 
 def get_player_forward_vector():
     global player_angle
@@ -114,17 +169,6 @@ def get_adjusted_object_color(object_position, preferred_color):
 def should_objected_be_rendered(object_pos):
     object_distance_from_player_squared = get_distance_squared(player_pos, object_pos)
     return object_distance_from_player_squared < flashlight_radius_squared
-
-def get_tile_from_pos(pos):
-    init_x = - (grid_tile_length * grid_dimension[0]) / 2
-    init_y = - (grid_tile_length * grid_dimension[1]) / 2
-
-    pos_x, pos_y = pos
-
-    tile_x = int((pos_x - init_x)/grid_tile_length)
-    tile_y = int((pos_y - init_y)/grid_tile_length)
-
-    return (tile_x, tile_y)
 
 def drawCrosshair():
     glMatrixMode(GL_PROJECTION)
@@ -183,157 +227,49 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
 
-def drawWall(tile_x1, tile_y1, total_x_tiles, total_y_tiles, height, wall_color):
-    init_x = (- grid_tile_length * grid_dimension[0]/ 2) + grid_tile_length * tile_x1
-    init_y = (- grid_tile_length * grid_dimension[1] / 2) + grid_tile_length * tile_y1
 
-    end_x = init_x + total_x_tiles * grid_tile_length
-    end_y = init_y + total_y_tiles * grid_tile_length
+def render_tiles():
+    global tiles_dict
+    
+    arena_start_pos_x = - (tile_length * grid_dimension[0]) / 2
+    arena_start_pos_y = - (tile_length * grid_dimension[1]) / 2
 
+    tileoid_length = tile_length / tile_res
 
-    cuboid_length = grid_tile_length / wall_cubeoid_res
-    total_stacked_cuboid = int(height / cuboid_length)
+    for tile_pos, tile_info_dict in tiles_dict.items():
+        tile_pos_x, tile_pos_y, tile_pos_z = tile_pos
 
-    player_x, player_y, player_z = player_pos
+        tile_start_x = arena_start_pos_x + tile_pos_x * tile_length
+        tile_end_x = tile_start_x + tile_length
 
-    cur_y = init_y
-    cur_x = init_x
+        tile_start_y = arena_start_pos_y + tile_pos_y * tile_length
+        tile_end_y = tile_start_y + tile_length
 
-    while cur_y < end_y:
-        cur_z = cuboid_length / 2
-        for _ in range(total_stacked_cuboid):
-            if should_objected_be_rendered((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2)):
-                cube_color = wall_color
-                cube_color = get_adjusted_object_color((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2), cube_color)
-                glPushMatrix()
-                glColor3f(cube_color[0], cube_color[1], cube_color[2])
-                glTranslatef(cur_x + cuboid_length / 2, cur_y +  cuboid_length / 2, cur_z)  
-                glutSolidCube(cuboid_length)
-                glPopMatrix()
+        tile_start_z = tile_pos_z * tile_length
+        tile_end_z = tile_start_z + tile_length
 
-            cur_z += cuboid_length
-        cur_y += cuboid_length
+        cur_y = tile_start_y
 
-    cur_y = init_y
-    cur_x = end_x - cuboid_length
-    while cur_y < end_y:
-        cur_z = cuboid_length / 2
-        for _ in range(total_stacked_cuboid):
-            if should_objected_be_rendered((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2)):
-                cube_color = wall_color
-                cube_color = get_adjusted_object_color((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2), cube_color)
-                glPushMatrix()
-                glColor3f(cube_color[0], cube_color[1], cube_color[2])
-                glTranslatef(cur_x + cuboid_length / 2, cur_y +  cuboid_length / 2, cur_z)  
-                glutSolidCube(cuboid_length)
-                glPopMatrix()
+        while cur_y < tile_end_y:
+            cur_x = tile_start_x
 
-            cur_z += cuboid_length
-        cur_y += cuboid_length
+            while cur_x < tile_end_x:
+                cur_z = tile_start_z
 
-    cur_x = init_x
-    cur_y = init_y
-    while cur_x < end_x:
-        cur_z = cuboid_length / 2
-        for _ in range(total_stacked_cuboid):
-            if should_objected_be_rendered((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2)):
-                cube_color = wall_color
-                cube_color = get_adjusted_object_color((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2), cube_color)
-                glPushMatrix()
-                glColor3f(cube_color[0], cube_color[1], cube_color[2])
-                glTranslatef(cur_x + cuboid_length / 2, cur_y +  cuboid_length / 2, cur_z)  
-                glutSolidCube(cuboid_length)
-                glPopMatrix()
+                while cur_z < tile_end_z:
 
-            cur_z += cuboid_length
-        cur_x += cuboid_length
+                    if should_objected_be_rendered((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)):
+                        tileoid_color_r, tileoid_color_g, tileoid_color_b = get_adjusted_object_color((cur_x + tileoid_length/2, cur_y + tileoid_length/2, cur_z + tileoid_length/2), tile_info_dict['color'])
+                        glPushMatrix()
+                        glColor3f(tileoid_color_r, tileoid_color_g , tileoid_color_b)
+                        glTranslatef(cur_x + tileoid_length / 2, cur_y + tileoid_length/2, cur_z + tileoid_length/2)
+                        glScale(tileoid_length, tileoid_length, tileoid_length)
+                        glutSolidCube(1)
+                        glPopMatrix()
 
-    cur_x = init_x
-    cur_y = end_y - cuboid_length
-    while cur_x < end_x:
-        cur_z = cuboid_length / 2
-        for _ in range(total_stacked_cuboid):
-            if should_objected_be_rendered((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2)):
-                cube_color = wall_color
-                cube_color = get_adjusted_object_color((cur_x + cuboid_length/2, cur_y + cuboid_length/2, cur_z + cuboid_length/2), cube_color)
-                glPushMatrix()
-                glColor3f(cube_color[0], cube_color[1], cube_color[2])
-                glTranslatef(cur_x + cuboid_length / 2, cur_y +  cuboid_length / 2, cur_z)  
-                glutSolidCube(cuboid_length)
-                glPopMatrix()
-
-            cur_z += cuboid_length
-        cur_x += cuboid_length
-
-
-    cur_y = init_y
-    while cur_y < end_y:
-        cur_x = init_x
-
-        while cur_x < end_x:
-
-            ceiling_z = height + cuboid_length / 2
-
-
-            if should_objected_be_rendered((cur_x + cuboid_length / 2,cur_y + cuboid_length / 2,ceiling_z)):
-
-                cube_color = wall_color
-                cube_color = get_adjusted_object_color((cur_x + cuboid_length / 2,cur_y + cuboid_length / 2,ceiling_z), cube_color)
-
-                glPushMatrix()
-
-                glColor3f(cube_color[0],cube_color[1],cube_color[2])
-
-                glTranslatef(cur_x + cuboid_length / 2,cur_y + cuboid_length / 2,ceiling_z)
-
-                glutSolidCube(cuboid_length)
-
-                glPopMatrix()
-
-            cur_x += cuboid_length
-
-        cur_y += cuboid_length
-
-def drawFloor():
-
-    init_x = - (grid_tile_length * grid_dimension[0]) / 2
-    init_y = - (grid_tile_length * grid_dimension[1]) / 2
-
-    end_x = (grid_tile_length * grid_dimension[0]) / 2
-    end_y = (grid_tile_length * grid_dimension[1]) / 2
-
-
-    tileoid_length = grid_tile_length / grid_tile_res
-
-    cur_y = init_y
-
-
-
-    while (cur_y < end_y):
-        cur_x = init_x
-
-        while(cur_x < end_x):
-
-            cur_tile_mid_x = cur_x + grid_tile_length / 2
-            cur_tile_mid_y = cur_y + grid_tile_length / 2
-
-            player_x, player_y, player_z = player_pos
-
-            if should_objected_be_rendered((cur_tile_mid_x, cur_tile_mid_y, 0)):
-                tile_color_brightness_adjusted = get_adjusted_object_color((cur_tile_mid_x, cur_tile_mid_y, 0), grid_color)
-                glPushMatrix()
-                glColor3f(tile_color_brightness_adjusted[0], tile_color_brightness_adjusted[1] , tile_color_brightness_adjusted[2])
-                glTranslatef(cur_x + tileoid_length / 2, cur_y + tileoid_length/2, -1)
-                glScale(tileoid_length, tileoid_length, 2)
-                glutSolidCube(1)
-                glPopMatrix()
-
-                
-            
-            cur_x += tileoid_length
-
-        cur_y += tileoid_length
-
+                    cur_z += tileoid_length
+                cur_x += tileoid_length
+            cur_y += tileoid_length
 
 def drawPlayer():
     player_x, player_y, player_z = player_pos
@@ -345,7 +281,6 @@ def drawPlayer():
     glutSolidCube(20)
     glPopMatrix()
     
-
 def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
@@ -433,8 +368,6 @@ def specialKeyListener(key, x, y):
     if key == GLUT_KEY_RIGHT:
         pass
 
-
-
 def mouseListener(button, state, x, y):
     """
     Handles mouse inputs for firing bullets (left click) and toggling camera mode (right click).
@@ -511,12 +444,7 @@ def showScreen():
 
     setupCamera()  # Configure camera perspective
 
-    drawFloor()
-    drawPlayer()
-
-    for wall in walls:
-        wall_start_x, wall_start_y, wall_length_x_tiles, wall_length_y_tiles, wall_height, wall_color = wall
-        drawWall(wall_start_x, wall_start_y, wall_length_x_tiles, wall_length_y_tiles, wall_height, wall_color)
+    render_tiles()
 
     # Display game info text at a fixed screen position
     draw_text(10, 770, f"A Random Fixed Position Text")
