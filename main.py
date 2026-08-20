@@ -57,7 +57,7 @@ flashlight_radius_squared = flashlight_radius ** 2
 
 weapon_bullet_ray_origin_pos = [0,0,0]
 weapon_muzzle_pos = [0,0,0]
-bullet_left = 20
+bullet_left = 40
 health = 100
 
 drone_collision_sphere_multiplier = 3
@@ -486,7 +486,7 @@ def get_crosshair_target():
             if distance_to_drone_squared <= drone_radius ** 2:
                 return (current_x, current_y, current_z)
 
-        #check main enemy collision
+        #main enemy collision
         enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
         enemy_radius = (main_enemy_info['length'] * tile_length) / 2
 
@@ -958,6 +958,11 @@ def check_should_game_be_over():
     if health <= 0:
         game_state = 'over'
 
+def check_should_game_be_won():
+    global main_enemy_info, game_state
+    if main_enemy_info['health'] <= 0:
+        game_state = 'won'
+
 def reset_game():
     global player_pos, player_angle, health, game_state, bullet_left
     global player_forward_velocity_multiplier, player_sideward_velocity_multiplier, player_upward_velocity_multiplier
@@ -969,7 +974,7 @@ def reset_game():
     health = 100
 
     game_state = 'running'
-    bullet_left = 20
+    bullet_left = 40
 
     player_forward_velocity_multiplier = 0.0
     player_sideward_velocity_multiplier = 0.0
@@ -1060,7 +1065,6 @@ def mouseMotionListener(x, y):
         player_angle -= dx * mouse_sensitivity * (delta_time * 17)
 
 
-    # Prevent looking too far up/down
     if camera_pitch < -60:
         camera_pitch = -60
     elif camera_pitch > 60:
@@ -1183,6 +1187,7 @@ def idle():
         check_enemies_health()
 
         check_should_game_be_over()
+        check_should_game_be_won()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -1208,6 +1213,7 @@ def showScreen():
 
     # Display game info text at a fixed screen position
     if game_state == 'running':
+        draw_text(15, 115, f"Main enemy health: {main_enemy_info['health']}")
         draw_text(15, 80, f"Bullet left: {bullet_left}")
         draw_text(15, 45, f"Health: {round(health)}")
         draw_text(15, 10, f"How many drones are following me?: {total_drone_follwing_player}")
@@ -1218,6 +1224,10 @@ def showScreen():
         draw_text(window_width/2 - window_width/15, window_height/2 - 35, "Press R to restart!")
     elif game_state == 'over':
         draw_text(window_width/2 - window_width/15, window_height/2 + 15, "GAME OVER!.")
+        draw_text(window_width/2 - window_width/15, window_height/2 - 20, "Press R to restart!")
+
+    elif game_state == 'won':
+        draw_text(window_width/2 - window_width/10, window_height/2 + 15, "CONGRATS! You have won the game!.")
         draw_text(window_width/2 - window_width/15, window_height/2 - 20, "Press R to restart!")
 
     # Swap buffers for smooth rendering (double buffering)
