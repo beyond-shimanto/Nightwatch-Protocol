@@ -39,8 +39,11 @@ player_jump_force = 26
 
 movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
 
-total_drone_follwing_player = 0
+
 main_enemy_info = {'tile_pos': [50,50,2], 'health': 100, 'target': None, 'length': 40,'speed': 40 , 'target_tile': None, 'color': (1,1,0)}
+
+weapon_length = 5
+weapon_side_offset = 0
 
 world_ground_level = 25
 grid_dimension = (100,100)
@@ -54,6 +57,10 @@ flashlight_radius_squared = flashlight_radius ** 2
 
 weapon_bullet_ray_origin_pos = [0,0,0]
 weapon_muzzle_pos = [0,0,0]
+
+drone_collision_sphere_multiplier = 3
+max_drone_that_can_follow = 4
+total_drone_follwing_player = 0
 
 drones = []
 
@@ -451,31 +458,143 @@ def get_crosshair_target():
     ray_origin_x, ray_origin_y, ray_origin_z = weapon_bullet_ray_origin_pos
     aim_distance = 500
 
+    current_x = ray_origin_x
+    current_y = ray_origin_y
+    current_z = ray_origin_z
+
+    step_length = 1
+
+    for i in range(int(aim_distance / step_length)):
+
+        current_x += aim_x * step_length
+        current_y += aim_y * step_length
+        current_z += aim_z * step_length
+
+        
+        tile_x, tile_y, tile_z = get_tile_from_pos(current_x, current_y, current_z)
+        if is_tile_occupied(tile_x, tile_y, tile_z):
+            return (current_x, current_y, current_z)
+
+        
+        for drone in drones:
+            drone_x, drone_y, drone_z = drone['current_real_pos']
+            drone_radius = drone['length'] / 2
+
+            distance_to_drone_squared = get_distance_squared((current_x, current_y, current_z), (drone_x, drone_y, drone_z))
+            if distance_to_drone_squared <= drone_radius ** 2:
+                return (current_x, current_y, current_z)
+
+        #check main enemy collision
+        enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
+        enemy_radius = (main_enemy_info['length'] * tile_length) / 2
+
+        distance_to_enemy_squared = get_distance_squared((current_x, current_y, current_z), (enemy_x, enemy_y, enemy_z))
+        if distance_to_enemy_squared <= enemy_radius ** 2:
+            return (current_x, current_y, current_z)
+
+    
     target_x = ray_origin_x + aim_x * aim_distance
     target_y = ray_origin_y + aim_y * aim_distance
     target_z = ray_origin_z + aim_z * aim_distance
 
     return (target_x, target_y, target_z)
 
+#Couldnt fix the bug in the raycasted bullet shooting mechanism
+# def shoot_bullet():
+#     global bullets
+#     target_x, target_y, target_z = get_crosshair_target()
+
+#     muzzle_x, muzzle_y, muzzle_z = weapon_muzzle_pos
+#     camera_x, camera_y, camera_z = weapon_bullet_ray_origin_pos
+
+#     distance_to_target_squared = get_distance_squared((camera_x, camera_y, camera_z), (target_x, target_y, target_z))
+#     distance_to_muzzle_squared = get_distance_squared((camera_x, camera_y, camera_z), (muzzle_x, muzzle_y, muzzle_z))
+
+#     if distance_to_target_squared < distance_to_muzzle_squared:
+#         return
+
+#     direction_x = target_x - muzzle_x
+#     direction_y = target_y - muzzle_y
+#     direction_z = target_z - muzzle_z
+
+#     length = (direction_x ** 2 +direction_y ** 2 +direction_z ** 2) ** 0.5
+
+#     direction_x /= length
+#     direction_y /= length
+#     direction_z /= length
+
+#     bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10, 'damage': 50}
+
+#     bullets.append(bullet)
+
 def shoot_bullet():
     global bullets
-    target_x, target_y, target_z = get_crosshair_target()
+    muzzle_x, muzzle_y, muzzle_z = weapon_bullet_ray_origin_pos
 
-    muzzle_x, muzzle_y, muzzle_z = weapon_muzzle_pos
+    direction_x, direction_y, direction_z = get_player_aim_vector()
 
-    direction_x = target_x - muzzle_x
-    direction_y = target_y - muzzle_y
-    direction_z = target_z - muzzle_z
-
-    length = (direction_x ** 2 +direction_y ** 2 +direction_z ** 2) ** 0.5
-
-    direction_x /= length
-    direction_y /= length
-    direction_z /= length
-
-    bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10}
+    bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10, 'damage': 50}
 
     bullets.append(bullet)
+
+def check_bullet_collisions():
+    global bullets
+
+    new_bullets_list = []
+
+    world_min_x = -(tile_length * grid_dimension[0]) / 2
+    world_max_x = world_min_x + tile_length * grid_dimension[0]
+
+    world_min_y = -(tile_length * grid_dimension[1]) / 2
+    world_max_y = world_min_y + tile_length * grid_dimension[1]
+
+    world_min_z = world_ground_level
+    world_max_z = 30 * tile_length
+
+    for bullet in bullets:
+        bullet_x, bullet_y, bullet_z = bullet['pos']
+
+        #world boundary collision
+        if bullet_x < world_min_x or bullet_x > world_max_x:
+            continue
+        if bullet_y < world_min_y or bullet_y > world_max_y:
+            continue
+        if bullet_z < world_min_z or bullet_z > world_max_z:
+            continue
+
+
+        #tile collision
+        tile_x, tile_y, tile_z = get_tile_from_pos(bullet_x, bullet_y, bullet_z)
+        if is_tile_occupied(tile_x, tile_y, tile_z):
+            continue
+
+        colliding = False
+        #drone collision
+        for drone in drones:
+            drone_x, drone_y, drone_z = drone['current_real_pos']
+            drone_radius = drone['length']
+
+            distance_to_drone_squared = get_distance_squared((bullet_x, bullet_y, bullet_z), (drone_x, drone_y, drone_z))
+            if distance_to_drone_squared <= drone_radius ** 2:
+                colliding = True
+                drone['health'] -= (bullet['damage']) / drone_collision_sphere_multiplier
+                # print('drone collide with bullete')
+                break
+
+        #main enemy collision
+        if not colliding:
+            enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
+            enemy_radius = (main_enemy_info['length'] * tile_length) / 2
+
+            distance_to_enemy_squared = get_distance_squared((bullet_x, bullet_y, bullet_z), (enemy_x, enemy_y, enemy_z))
+            if distance_to_enemy_squared <= enemy_radius ** 2:
+                colliding = True
+                main_enemy_info['health'] -= bullet['damage']
+
+        if not colliding:
+            new_bullets_list.append(bullet)
+
+    bullets = new_bullets_list
 
 def move_bullets():
 
@@ -490,12 +609,16 @@ def render_bullets():
 
     for bullet in bullets:
         x, y, z = bullet['pos']
+        if (player_pos[0] - player_width /2 <= x <= player_pos[0] + player_width /2
+            or player_pos[1] - player_width /2 <= x <= player_pos[1] + player_width /2
+        ):
+            continue
         if should_illuminated_objected_be_rendered((x,y,z)):
             cr, cg, cb = get_adjusted_illuminated_object_color((x,y,z), (1,1,0))
             glPushMatrix()
             glColor3f(cr, cg, cb)
             glTranslatef(x, y, z)
-            glutSolidSphere(5, 10, 10)
+            glutSolidSphere(1, 10, 10)
             glPopMatrix()
 
 def is_player_in_detection_range_of_drone(drone):
@@ -542,6 +665,9 @@ def do_drone_have_line_of_sight_of_player(drone_pos, player_pos):
 
 def can_drone_see_player(drone):
 
+    if total_drone_follwing_player >= max_drone_that_can_follow:
+        return False
+
     if not is_player_in_detection_range_of_drone(drone):
         return False
 
@@ -553,10 +679,18 @@ def can_drone_see_player(drone):
 def calculate_drones_next_tile():
     global drones, main_enemy_info
 
+    total_path_finding_robots = 0
+
     for drone in drones:
         if drone['next_tile_pos'] != None:
-            pass
+            continue
+
         if can_drone_see_player(drone):
+
+            if total_path_finding_robots >= max_drone_that_can_follow:
+                continue
+            total_path_finding_robots += 1
+
             player_tile_x, player_tile_y, player_tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
             drone['last_seen_tile'] = [player_tile_x, player_tile_y, drone['tile_pos'][2]]
 
@@ -569,6 +703,11 @@ def calculate_drones_next_tile():
             drone['next_tile_pos'] = list(next_best_tile)
 
         elif drone['last_seen_tile'] != None:
+
+            if total_path_finding_robots >= max_drone_that_can_follow:
+                continue
+            total_path_finding_robots += 1
+
             path_list = calculate_drone_path(drone['tile_pos'], drone['last_seen_tile'])
             if len(path_list) < 2:
                 continue
@@ -610,7 +749,7 @@ def move_drones():
             drone['current_real_pos'][2] += dz * drone['speed'] * delta_time
                 
 
-def draw_drone(tile_x, tile_y, tile_z, color, length, detection_range, speed):
+def draw_drone(tile_x, tile_y, tile_z, color, length, detection_range, speed, health):
     drone = {
         'tile_pos': [tile_x, tile_y, tile_z],
         'color' : color,
@@ -619,7 +758,8 @@ def draw_drone(tile_x, tile_y, tile_z, color, length, detection_range, speed):
         'speed' : speed,
         'last_seen_tile' : None,
         'current_real_pos' : get_world_pos_from_tile(tile_x, tile_y, tile_z),
-        'next_tile_pos' : None
+        'next_tile_pos' : None,
+        'health' : health
     }
 
     drones.append(drone)
@@ -778,6 +918,21 @@ def render_main_enemy():
 
         glPopMatrix()
 
+def check_enemies_health():
+    global drones, main_enemy_info
+
+    new_drones_list = []
+
+    for drone in drones:
+        if drone['health'] > 0:
+            new_drones_list.append(drone)
+        
+    drones = new_drones_list
+
+    
+    if main_enemy_info['health'] <= 0:
+        pass
+
 def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
@@ -930,19 +1085,19 @@ def setupCamera():
 
 
 def updateWeaponMuzzlePosition():
-    global player_pos, weapon_muzzle_pos
-    weapon_lenth = 80
-    weapon_side_offset = -50
+    global player_pos, weapon_muzzle_pos, weapon_length, weapon_side_offset
+
     player_forward_x, player_forward_y = get_player_forward_vector()
-    muzzle_x = player_pos[0] + player_forward_x * weapon_lenth
-    muzzle_y = player_pos[1] + player_forward_y * weapon_lenth
+    player_aim_x, player_aim_y, player_aim_z = get_player_aim_vector()
+
+    muzzle_x = player_pos[0] + player_aim_x * weapon_length
+    muzzle_y = player_pos[1] + player_aim_y * weapon_length
+    muzzle_z = player_pos[2] - player_height / 2 + player_aim_z * weapon_length
 
     player_perpendicular_x = player_forward_y
     player_perpendicular_y = - player_forward_x
     muzzle_x += player_perpendicular_x * weapon_side_offset
     muzzle_y += player_perpendicular_y * weapon_side_offset
-
-    muzzle_z = player_pos[2] - player_height / 2
 
     weapon_muzzle_pos = [muzzle_x, muzzle_y, muzzle_z]
 
@@ -962,7 +1117,9 @@ def idle():
     move_bullets()
     calculate_drones_next_tile()
     move_drones()
-    move_main_enemy()
+    check_bullet_collisions()
+    # move_main_enemy()
+    check_enemies_health()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -1003,21 +1160,13 @@ def loadMap():
 
     draw_main_enemy(0, 100, 8, 14, 100, 40, (1,1,0))
 
-    draw_drone(10, 10, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(25, 10, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(40, 10, 13, (0, 0, 1), 10, 20, 40)
+    draw_drone(10, 10, 11, (0, 0, 1), 10, 20, 40, 50)
+    draw_drone(25, 10, 11, (0, 0, 1), 10, 20, 40, 50)
+    draw_drone(40, 10, 13, (0, 0, 1), 10, 20, 40, 50)
 
-    draw_drone(10, 25, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(25, 25, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(40, 25, 11, (0, 0, 1), 10, 20, 40)
-
-    draw_drone(60, 60, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(75, 60, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(90, 60, 11, (0, 0, 1), 10, 20, 40)
-
-    draw_drone(60, 75, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(75, 75, 11, (0, 0, 1), 10, 20, 40)
-    draw_drone(90, 75, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(10, 25, 11, (0, 0, 1), 10, 20, 40, 50)
+    draw_drone(25, 25, 11, (0, 0, 1), 10, 20, 40, 50)
+    draw_drone(40, 25, 11, (0, 0, 1), 10, 20, 40, 50)
     
 
 # Main function to set up OpenGL window and loop
