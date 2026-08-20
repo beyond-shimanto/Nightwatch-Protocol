@@ -14,7 +14,7 @@ fovY = 90  # Field of view
 camera_pitch = 0
 
 
-
+game_state = 'running'
 
 mouse_center_x = window_width // 2
 mouse_center_y = window_height // 2
@@ -57,6 +57,8 @@ flashlight_radius_squared = flashlight_radius ** 2
 
 weapon_bullet_ray_origin_pos = [0,0,0]
 weapon_muzzle_pos = [0,0,0]
+bullet_left = 20
+health = 100
 
 drone_collision_sphere_multiplier = 3
 max_drone_that_can_follow = 4
@@ -299,7 +301,7 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glLoadIdentity()
     
     # Set up an orthographic projection that matches window coordinates
-    gluOrtho2D(0, 1000, 0, 800)  # left, right, bottom, top
+    gluOrtho2D(0, window_width, 0, window_height)  # left, right, bottom, top
 
     
     glMatrixMode(GL_MODELVIEW)
@@ -528,6 +530,9 @@ def get_crosshair_target():
 #     bullets.append(bullet)
 
 def shoot_bullet():
+    global bullet_left
+    if bullet_left <= 0:
+        return
     global bullets
     muzzle_x, muzzle_y, muzzle_z = weapon_bullet_ray_origin_pos
 
@@ -536,6 +541,7 @@ def shoot_bullet():
     bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10, 'damage': 50}
 
     bullets.append(bullet)
+    bullet_left -= 1
 
 def check_bullet_collisions():
     global bullets
@@ -850,7 +856,7 @@ def render_drones():
 
             glPopMatrix()
 
-def draw_main_enemy(tile_x, tile_y, tile_z, length, health, speed, color):
+def draw_main_enemy(tile_x, tile_y, tile_z, length, health, speed, color, damage_rate):
     global main_enemy_info
     if length % 2 == 1: length += 1
     main_enemy_info['real_pos'] = get_world_pos_from_tile(tile_x, tile_y, tile_z)
@@ -859,6 +865,7 @@ def draw_main_enemy(tile_x, tile_y, tile_z, length, health, speed, color):
     main_enemy_info['color'] = color
     main_enemy_info['speed'] = speed
     main_enemy_info['target_tile'] = None
+    main_enemy_info['damage'] = damage_rate
 
 def move_main_enemy():
     global main_enemy_info
@@ -901,6 +908,17 @@ def destroy_tiles_occupied_by_main_enemy():
                     
                     del tiles_dict[tile]
 
+def check_player_collision_with_main_enemy():
+    global health
+
+    enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
+    enemy_radius = (main_enemy_info['length'] * tile_length) / 2
+
+    distance_to_enemy_squared = get_distance_squared(player_pos, (enemy_x, enemy_y, enemy_z))
+
+    if distance_to_enemy_squared <= enemy_radius ** 2:
+        health -= main_enemy_info['damage'] * delta_time
+
 def render_main_enemy():
     global main_enemy_info
     enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
@@ -933,13 +951,47 @@ def check_enemies_health():
     if main_enemy_info['health'] <= 0:
         pass
 
+def check_should_game_be_over():
+    global bullet_left, game_state, health
+    if bullet_left <= 0:
+        game_state = 'over'
+    if health <= 0:
+        game_state = 'over'
+
+def reset_game():
+    global player_pos, player_angle, health, game_state, bullet_left
+    global player_forward_velocity_multiplier, player_sideward_velocity_multiplier, player_upward_velocity_multiplier
+    global movement_keys_pressed, camera_pitch, total_drone_follwing_player
+    global tiles_dict, drones, bullets
+
+    player_pos = [0,100,200]
+    player_angle = 0
+    health = 100
+
+    game_state = 'running'
+    bullet_left = 20
+
+    player_forward_velocity_multiplier = 0.0
+    player_sideward_velocity_multiplier = 0.0
+    player_upward_velocity_multiplier = 0.0
+
+    movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
+
+    camera_pitch = 0
+    total_drone_follwing_player = 0
+
+    tiles_dict = {}
+    drones = []
+    bullets = []
+
+    loadMap()
+
 def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
     """
     global player_pos, camera_mode, cursor_locked, movement_keys_pressed
-
-    player_movement_vector_x, player_movement_vector_y = get_player_forward_vector()
+    global game_state
 
 
 
@@ -950,6 +1002,11 @@ def keyboardListener(key, x, y):
         else:
             glutSetCursor(GLUT_CURSOR_NONE)
             glutWarpPointer(mouse_center_x, mouse_center_y)
+
+        if game_state == 'running':
+            game_state = 'paused'
+        elif game_state == 'paused':
+            game_state = 'running'
 
     if key == b'w':
         movement_keys_pressed['w'] = True
@@ -972,7 +1029,8 @@ def keyboardListener(key, x, y):
             camera_mode = 'tps'
 
     # # Reset the game if R key is pressed
-    # if key == b'r':
+    if key == b'r':
+        reset_game()
 
 def keyboardUpListener(key, x, y):
     if key == b'w':
@@ -1106,20 +1164,25 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global current_time, delta_time
+    global current_time, delta_time, game_state
     new_time = time.time()
     delta_time = new_time - current_time
     current_time = new_time
 
-    destroy_tiles_occupied_by_main_enemy()
-    handlePlayerMovement()
-    updateWeaponMuzzlePosition()
-    move_bullets()
-    calculate_drones_next_tile()
-    move_drones()
-    check_bullet_collisions()
-    # move_main_enemy()
-    check_enemies_health()
+    if game_state == 'running':
+
+        destroy_tiles_occupied_by_main_enemy()
+        handlePlayerMovement()
+        updateWeaponMuzzlePosition()
+        move_bullets()
+        calculate_drones_next_tile()
+        move_drones()
+        check_bullet_collisions()
+        move_main_enemy()
+        check_player_collision_with_main_enemy()
+        check_enemies_health()
+
+        check_should_game_be_over()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -1144,9 +1207,19 @@ def showScreen():
     render_main_enemy()
 
     # Display game info text at a fixed screen position
-    draw_text(10, 770, f"A Random Fixed Position Text")
-    draw_text(10, 740, f"How many drones are following me?: {total_drone_follwing_player}")
-    drawCrosshair()
+    if game_state == 'running':
+        draw_text(15, 80, f"Bullet left: {bullet_left}")
+        draw_text(15, 45, f"Health: {round(health)}")
+        draw_text(15, 10, f"How many drones are following me?: {total_drone_follwing_player}")
+        drawCrosshair()
+    elif game_state == 'paused':
+        draw_text(window_width/2 - window_width/15, window_height/2 + 35, "Game is paused.")
+        draw_text(window_width/2 - window_width/15, window_height/2, "Press escape to resume!")
+        draw_text(window_width/2 - window_width/15, window_height/2 - 35, "Press R to restart!")
+    elif game_state == 'over':
+        draw_text(window_width/2 - window_width/15, window_height/2 + 15, "GAME OVER!.")
+        draw_text(window_width/2 - window_width/15, window_height/2 - 20, "Press R to restart!")
+
     # Swap buffers for smooth rendering (double buffering)
     glutSwapBuffers()
 
@@ -1158,7 +1231,7 @@ def loadMap():
     draw_wall(10,50,0,2,25, 15, {'color': (0,1,0)})
     draw_wall(55,70,0,25,10, 15, {'color': (0,1,0)})
 
-    draw_main_enemy(0, 100, 8, 14, 100, 40, (1,1,0))
+    draw_main_enemy(0, 100, 8, 14, 100, 40, (1,1,0), 20)
 
     draw_drone(10, 10, 11, (0, 0, 1), 10, 20, 40, 50)
     draw_drone(25, 10, 11, (0, 0, 1), 10, 20, 40, 50)
@@ -1172,7 +1245,7 @@ def loadMap():
 # Main function to set up OpenGL window and loop
 def main():
 
-    loadMap()
+    reset_game()
 
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)  # Double buffering, RGB color, depth test
