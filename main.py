@@ -3,6 +3,7 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import time
 import math
+import heapq
 
 window_width = 1440
 window_height = 750
@@ -11,6 +12,8 @@ window_height = 750
 camera_mode = 'fps'
 fovY = 75  # Field of view
 camera_pitch = 0
+
+
 
 
 mouse_center_x = window_width // 2
@@ -36,6 +39,8 @@ player_jump_force = 26
 
 movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
 
+total_drone_follwing_player = 0
+
 world_ground_level = 25
 grid_dimension = (100,100)
 tile_length = 10
@@ -49,7 +54,7 @@ flashlight_radius_squared = flashlight_radius ** 2
 weapon_bullet_ray_origin_pos = [0,0,0]
 weapon_muzzle_pos = [0,0,0]
 
-
+drones = []
 
 tiles_dict = {}
 
@@ -136,13 +141,25 @@ def get_tile_from_pos(pos_x, pos_y, pos_z):
 
     return (tile_x, tile_y, tile_z)
 
-def loadMap():
-    draw_floor()
-    draw_wall(5,90,0,50,4, 15, {'color': (0,1,0)})
-    draw_wall(40,42,0,55,4, 5, {'color': (0,1,0)})
-    draw_wall(5,5,0,5,2, 15, {'color': (1,0,0)})
-    draw_wall(10,50,0,2,25, 15, {'color': (0,1,0)})
-    draw_wall(55,70,0,25,10, 15, {'color': (0,1,0)})
+def get_world_pos_from_tile(tile_x, tile_y, tile_z):
+    world_start_pos_x = -(tile_length * grid_dimension[0]) / 2
+    world_start_pos_y = -(tile_length * grid_dimension[1]) / 2
+
+    world_x = world_start_pos_x + tile_x * tile_length + tile_length / 2
+    world_y = world_start_pos_y + tile_y * tile_length + tile_length / 2
+    world_z = tile_z * tile_length + tile_length / 2
+
+    return (world_x, world_y, world_z)
+
+def get_world_pos_from_tile(tile_x, tile_y, tile_z):
+    world_start_pos_x = -(tile_length * grid_dimension[0]) / 2
+    world_start_pos_y = -(tile_length * grid_dimension[1]) / 2
+
+    world_x = world_start_pos_x + tile_x * tile_length + tile_length / 2
+    world_y = world_start_pos_y + tile_y * tile_length + tile_length / 2
+    world_z = tile_z * tile_length + tile_length / 2
+
+    return [world_x, world_y, world_z]
 
 def move_player(movement_vector_x, movement_vector_y, movement_vector_z):
     cur_x, cur_y, cur_z = player_pos
@@ -422,6 +439,270 @@ def handlePlayerMovement():
 
     move_player(0, 0, 9 * player_upward_velocity_multiplier * delta_time)
 
+def get_crosshair_target():
+    aim_x, aim_y, aim_z = get_player_aim_vector()
+
+    ray_origin_x, ray_origin_y, ray_origin_z = weapon_bullet_ray_origin_pos
+    aim_distance = 500
+
+    target_x = ray_origin_x + aim_x * aim_distance
+    target_y = ray_origin_y + aim_y * aim_distance
+    target_z = ray_origin_z + aim_z * aim_distance
+
+    return (target_x, target_y, target_z)
+
+def shoot_bullet():
+    global bullets
+    target_x, target_y, target_z = get_crosshair_target()
+
+    muzzle_x, muzzle_y, muzzle_z = weapon_muzzle_pos
+
+    direction_x = target_x - muzzle_x
+    direction_y = target_y - muzzle_y
+    direction_z = target_z - muzzle_z
+
+    length = (direction_x ** 2 +direction_y ** 2 +direction_z ** 2) ** 0.5
+
+    direction_x /= length
+    direction_y /= length
+    direction_z /= length
+
+    bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10}
+
+    bullets.append(bullet)
+
+def move_bullets():
+
+    global bullets
+    for bullet in bullets:
+
+        bullet['pos'][0] += bullet['direction'][0] * bullet['speed'] * delta_time * 100
+        bullet['pos'][1] += bullet['direction'][1] * bullet['speed'] * delta_time * 100
+        bullet['pos'][2] += bullet['direction'][2] * bullet['speed'] * delta_time * 100
+
+def render_bullets():
+
+    for bullet in bullets:
+        x, y, z = bullet['pos']
+        if should_illuminated_objected_be_rendered((x,y,z)):
+
+            glPushMatrix()
+            glColor3f(1, 1, 0)
+            glTranslatef(x, y, z)
+            glutSolidSphere(5, 10, 10)
+            glPopMatrix()
+
+def is_player_in_detection_range_of_drone(drone):
+
+    drone_tile_x, drone_tile_y, drone_tile_z = drone['tile_pos']
+    player_tile_x, player_tile_y, player_tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
+
+    distance_squared = get_distance_squared(
+        (drone_tile_x, drone_tile_y, drone_tile_z),
+        (player_tile_x, player_tile_y, player_tile_z)
+    )
+
+    return distance_squared <= drone['detection_range'] ** 2
+
+def do_drone_have_line_of_sight_of_player(drone_pos, player_pos):
+
+    direction_vector_x = player_pos[0] - drone_pos[0]
+    direction_vector_y = player_pos[1] - drone_pos[1]
+    direction_vector_z = player_pos[2] - drone_pos[2]
+
+    direction_distance = (direction_vector_x ** 2 + direction_vector_y ** 2 + direction_vector_z ** 2) ** (1/2)
+
+    if direction_distance == 0: return True
+
+    dx = direction_vector_x / direction_distance
+    dy = direction_vector_y / direction_distance
+    dz = direction_vector_z / direction_distance
+
+    current_tile_x = drone_pos[0]
+    current_tile_y = drone_pos[1]
+    current_tile_z = drone_pos[2]
+
+
+    for i in range(math.ceil(direction_distance + 1)):
+
+        current_tile_x += dx
+        current_tile_y += dy
+        current_tile_z += dz
+
+        if is_tile_occupied(round(current_tile_x), round(current_tile_y), round(current_tile_z)):
+            return False
+
+    return True
+
+def can_drone_see_player(drone):
+
+    if not is_player_in_detection_range_of_drone(drone):
+        return False
+
+    drone_pos = drone['tile_pos']
+    player_tile_x, player_tile_y, player_tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
+
+    return do_drone_have_line_of_sight_of_player(drone_pos, (player_tile_x, player_tile_y, player_tile_z))
+
+def calculate_drones_next_tile():
+    global drones
+
+    for drone in drones:
+        if drone['next_tile_pos'] != None:
+            pass
+        if can_drone_see_player(drone):
+            player_tile_x, player_tile_y, player_tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
+            drone['last_seen_tile'] = [player_tile_x, player_tile_y, drone['tile_pos'][2]]
+
+            path_list = calculate_drone_path(drone['tile_pos'], drone['last_seen_tile'])
+            if len(path_list) < 2:
+                continue
+            next_best_tile = path_list[1]
+            drone['next_tile_pos'] = list(next_best_tile)
+
+        elif drone['last_seen_tile'] != None:
+            path_list = calculate_drone_path(drone['tile_pos'], drone['last_seen_tile'])
+            if len(path_list) < 2:
+                continue
+            next_best_tile = path_list[1]            
+            drone['next_tile_pos'] = list(next_best_tile)
+
+
+def move_drones():
+    global drones, total_drone_follwing_player
+    total_drone_follwing_player = 0
+    for drone in drones:
+        if drone['next_tile_pos'] != None: #move
+
+            total_drone_follwing_player += 1
+
+            before_pos = drone['current_real_pos']
+            next_tile_x, next_tile_y, next_tile_z = drone['next_tile_pos']
+            after_pos = get_world_pos_from_tile(next_tile_x, next_tile_y, next_tile_z)
+        
+            direction_x = after_pos[0] - before_pos[0]
+            direction_y = after_pos[1] - before_pos[1]
+            direction_z = after_pos[2] - before_pos[2]
+        
+            distance = (direction_x ** 2 + direction_y ** 2 + direction_z ** 2) ** 0.5
+        
+            if distance < drone['speed'] * delta_time:
+                drone['tile_pos'] = drone['next_tile_pos']
+                drone['next_tile_pos'] = None
+                drone_x, drone_y, drone_z = drone['tile_pos']
+                drone['current_real_pos'] = get_world_pos_from_tile(drone_x, drone_y, drone_z)
+                continue
+        
+            dx = direction_x / distance
+            dy = direction_y / distance
+            dz = direction_z / distance
+        
+            drone['current_real_pos'][0] += dx * drone['speed'] * delta_time
+            drone['current_real_pos'][1] += dy * drone['speed'] * delta_time
+            drone['current_real_pos'][2] += dz * drone['speed'] * delta_time
+                
+
+def draw_drone(tile_x, tile_y, tile_z, color, length, detection_range, speed):
+    drone = {
+        'tile_pos': [tile_x, tile_y, tile_z],
+        'color' : color,
+        'length' : length,
+        'detection_range': detection_range,
+        'speed' : speed,
+        'last_seen_tile' : None,
+        'current_real_pos' : get_world_pos_from_tile(tile_x, tile_y, tile_z),
+        'next_tile_pos' : None
+    }
+
+    drones.append(drone)
+
+def calculate_drone_path(start, goal):
+    global grid_dimension
+
+    start = tuple(start)
+    goal = tuple(goal)
+
+    def heuristic(node):
+        return abs(node[0] - goal[0]) + abs(node[1] - goal[1]) + abs(node[2] - goal[2])
+
+    max_x, max_y = grid_dimension[0], grid_dimension[1]
+    max_z = 30
+
+    fringe = []
+    
+    start_g = 0
+    start_f = start_g + heuristic(start)
+    
+    heapq.heappush(fringe, (start_f, start_g, start))
+
+    g_scores = {tuple(start): 0}
+    
+    came_from = {}
+
+    neighbors_offsets = [
+        (1, 0, 0), (-1, 0, 0),
+        (0, 1, 0), (0, -1, 0),
+        (0, 0, 1), (0, 0, -1)
+    ]
+
+    while fringe:
+        f_n, g_n, current = heapq.heappop(fringe)
+
+        if current == goal:
+            path = []
+            curr = goal
+            while tuple(curr) in came_from:
+                path.append(curr)
+                curr = came_from[tuple(curr)]
+            path.append(start)
+            return path[::-1]
+
+        if g_n > g_scores.get(tuple(current), float('inf')):
+            continue
+
+        for dx, dy, dz in neighbors_offsets:
+            nx, ny, nz = current[0] + dx, current[1] + dy, current[2] + dz
+            neighbor = (nx, ny, nz)
+
+            if not (0 <= nx <= max_x and 0 <= ny <= max_y and 0 <= nz <= max_z):
+                continue
+
+            if is_tile_occupied(nx, ny, nz):
+                continue
+
+            tentative_g = g_n + 1
+
+            if tentative_g < g_scores.get(tuple(neighbor), float('inf')):
+                came_from[tuple(neighbor)] = current
+                g_scores[tuple(neighbor)] = tentative_g
+                
+                f_neighbor = tentative_g + heuristic(neighbor)
+                heapq.heappush(fringe, (f_neighbor, tentative_g, neighbor))
+
+    # Return empty list if no valid path exists
+    return []
+
+
+def render_drones():
+
+    world_start_pos_x = -(tile_length * grid_dimension[0]) / 2
+    world_start_pos_y = -(tile_length * grid_dimension[1]) / 2
+
+    for drone in drones:
+
+        x,y,z = drone['current_real_pos']
+
+        if should_objected_be_rendered((x,y,z)):
+
+            drone_adjusted_color = get_adjusted_object_color((x,y,z), drone['color'])
+            glPushMatrix()
+
+            glColor3f(drone_adjusted_color[0], drone_adjusted_color[1], drone_adjusted_color[2] )
+            glTranslatef(x, y, z)
+            glutSolidCube(drone['length'])
+
+            glPopMatrix()
+
 
 def keyboardListener(key, x, y):
     """
@@ -502,7 +783,6 @@ def mouseMotionListener(x, y):
         glutWarpPointer(mouse_center_x, mouse_center_y)
         
 
-
 def specialKeyListener(key, x, y):
     """
     Handles special key inputs (arrow keys) for adjusting the camera angle and height.
@@ -574,58 +854,6 @@ def setupCamera():
               camera_look_at_x, camera_look_at_y, camera_look_at_z,  # Look-at target
               0, 0, 1)  # Up vector (z-axis)
 
-def get_crosshair_target():
-    aim_x, aim_y, aim_z = get_player_aim_vector()
-
-    ray_origin_x, ray_origin_y, ray_origin_z = weapon_bullet_ray_origin_pos
-    aim_distance = 500
-
-    target_x = ray_origin_x + aim_x * aim_distance
-    target_y = ray_origin_y + aim_y * aim_distance
-    target_z = ray_origin_z + aim_z * aim_distance
-
-    return (target_x, target_y, target_z)
-
-def shoot_bullet():
-    global bullets
-    target_x, target_y, target_z = get_crosshair_target()
-
-    muzzle_x, muzzle_y, muzzle_z = weapon_muzzle_pos
-
-    direction_x = target_x - muzzle_x
-    direction_y = target_y - muzzle_y
-    direction_z = target_z - muzzle_z
-
-    length = (direction_x ** 2 +direction_y ** 2 +direction_z ** 2) ** 0.5
-
-    direction_x /= length
-    direction_y /= length
-    direction_z /= length
-
-    bullet = {'pos': [muzzle_x, muzzle_y, muzzle_z], 'direction': [direction_x, direction_y, direction_z], 'speed' : 10}
-
-    bullets.append(bullet)
-
-def move_bullets():
-
-    global bullets
-    for bullet in bullets:
-
-        bullet['pos'][0] += bullet['direction'][0] * bullet['speed'] * delta_time * 100
-        bullet['pos'][1] += bullet['direction'][1] * bullet['speed'] * delta_time * 100
-        bullet['pos'][2] += bullet['direction'][2] * bullet['speed'] * delta_time * 100
-
-def draw_bullets():
-
-    for bullet in bullets:
-        x, y, z = bullet['pos']
-        if should_illuminated_objected_be_rendered((x,y,z)):
-
-            glPushMatrix()
-            glColor3f(1, 1, 0)
-            glTranslatef(x, y, z)
-            glutSolidSphere(5, 10, 10)
-            glPopMatrix()
 
 def updateWeaponMuzzlePosition():
     global player_pos, weapon_muzzle_pos
@@ -657,6 +885,8 @@ def idle():
     handlePlayerMovement()
     updateWeaponMuzzlePosition()
     move_bullets()
+    calculate_drones_next_tile()
+    move_drones()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -676,15 +906,40 @@ def showScreen():
 
     render_tiles()
     drawPlayer()
-    draw_bullets()
+    render_bullets()
+    render_drones()
 
     # Display game info text at a fixed screen position
     draw_text(10, 770, f"A Random Fixed Position Text")
-    draw_text(10, 740, f"See how the position and variable change?: {'meow'}")
+    draw_text(10, 740, f"How many drones are following me?: {total_drone_follwing_player}")
     drawCrosshair()
     # Swap buffers for smooth rendering (double buffering)
     glutSwapBuffers()
 
+def loadMap():
+    draw_floor()
+    draw_wall(5,90,0,50,4, 15, {'color': (0,0,1)})
+    draw_wall(40,42,0,55,4, 5, {'color': (0,1,0)})
+    draw_wall(5,5,0,5,2, 15, {'color': (1,0,0)})
+    draw_wall(10,50,0,2,25, 15, {'color': (0,1,0)})
+    draw_wall(55,70,0,25,10, 15, {'color': (0,1,0)})
+
+    draw_drone(10, 10, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(25, 10, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(40, 10, 13, (0, 0, 1), 10, 20, 40)
+
+    draw_drone(10, 25, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(25, 25, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(40, 25, 11, (0, 0, 1), 10, 20, 40)
+
+    draw_drone(60, 60, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(75, 60, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(90, 60, 11, (0, 0, 1), 10, 20, 40)
+
+    draw_drone(60, 75, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(75, 75, 11, (0, 0, 1), 10, 20, 40)
+    draw_drone(90, 75, 11, (0, 0, 1), 10, 20, 40)
+    
 
 # Main function to set up OpenGL window and loop
 def main():
