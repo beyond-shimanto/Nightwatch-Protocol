@@ -10,7 +10,7 @@ window_height = 750
 
 # Camera-related variables
 camera_mode = 'fps'
-fovY = 75  # Field of view
+fovY = 90  # Field of view
 camera_pitch = 0
 
 
@@ -40,6 +40,7 @@ player_jump_force = 26
 movement_keys_pressed = {'w': False, 's': False, 'a': False, 'd': False, 'space': False}
 
 total_drone_follwing_player = 0
+main_enemy_info = {'tile_pos': [50,50,2], 'health': 100, 'target': None, 'length': 40,'speed': 40 , 'target_tile': None, 'color': (1,1,0)}
 
 world_ground_level = 25
 grid_dimension = (100,100)
@@ -237,6 +238,11 @@ def get_distance_squared(pos_1, pos_2):
 def get_adjusted_object_color(object_position, preferred_color):
     distance_from_player_squared = get_distance_squared(object_position, player_pos)
     brightness_value = (flashlight_radius_squared - distance_from_player_squared) / (flashlight_radius_squared + 0.75* distance_from_player_squared)
+    return (preferred_color[0] * brightness_value, preferred_color[1] * brightness_value, preferred_color[2] * brightness_value)
+
+def get_adjusted_illuminated_object_color(object_position, preferred_color):
+    distance_from_player_squared = get_distance_squared(object_position, player_pos)
+    brightness_value = (flashlight_radius_squared*4 - distance_from_player_squared) / (flashlight_radius_squared*4 + 0.75* distance_from_player_squared)
     return (preferred_color[0] * brightness_value, preferred_color[1] * brightness_value, preferred_color[2] * brightness_value)
 
 def should_objected_be_rendered(object_pos):
@@ -485,9 +491,9 @@ def render_bullets():
     for bullet in bullets:
         x, y, z = bullet['pos']
         if should_illuminated_objected_be_rendered((x,y,z)):
-
+            cr, cg, cb = get_adjusted_illuminated_object_color((x,y,z), (1,1,0))
             glPushMatrix()
-            glColor3f(1, 1, 0)
+            glColor3f(cr, cg, cb)
             glTranslatef(x, y, z)
             glutSolidSphere(5, 10, 10)
             glPopMatrix()
@@ -545,7 +551,7 @@ def can_drone_see_player(drone):
     return do_drone_have_line_of_sight_of_player(drone_pos, (player_tile_x, player_tile_y, player_tile_z))
 
 def calculate_drones_next_tile():
-    global drones
+    global drones, main_enemy_info
 
     for drone in drones:
         if drone['next_tile_pos'] != None:
@@ -553,6 +559,8 @@ def calculate_drones_next_tile():
         if can_drone_see_player(drone):
             player_tile_x, player_tile_y, player_tile_z = get_tile_from_pos(player_pos[0], player_pos[1], player_pos[2])
             drone['last_seen_tile'] = [player_tile_x, player_tile_y, drone['tile_pos'][2]]
+
+            main_enemy_info['target_tile'] = [player_tile_x, player_tile_y, player_tile_z]
 
             path_list = calculate_drone_path(drone['tile_pos'], drone['last_seen_tile'])
             if len(path_list) < 2:
@@ -679,7 +687,6 @@ def calculate_drone_path(start, goal):
                 f_neighbor = tentative_g + heuristic(neighbor)
                 heapq.heappush(fringe, (f_neighbor, tentative_g, neighbor))
 
-    # Return empty list if no valid path exists
     return []
 
 
@@ -703,6 +710,73 @@ def render_drones():
 
             glPopMatrix()
 
+def draw_main_enemy(tile_x, tile_y, tile_z, length, health, speed, color):
+    global main_enemy_info
+    if length % 2 == 1: length += 1
+    main_enemy_info['real_pos'] = get_world_pos_from_tile(tile_x, tile_y, tile_z)
+    main_enemy_info['length'] = length
+    main_enemy_info['health'] = health
+    main_enemy_info['color'] = color
+    main_enemy_info['speed'] = speed
+    main_enemy_info['target_tile'] = None
+
+def move_main_enemy():
+    global main_enemy_info
+    if main_enemy_info['target_tile'] == None: return
+
+    enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
+    target_x, target_y, target_z = main_enemy_info['target_tile']
+    target_x, target_y, target_z = get_world_pos_from_tile(target_x, target_y, target_z)
+
+
+    direction_vector_x = target_x - enemy_x
+    direction_vector_y = target_y - enemy_y
+
+    direction_vector_length = (direction_vector_x ** 2 + direction_vector_y ** 2) ** 0.5
+    dx = direction_vector_x / direction_vector_length
+    dy = direction_vector_y / direction_vector_length
+
+
+
+    main_enemy_info['real_pos'][0] += dx * delta_time * main_enemy_info['speed']
+    main_enemy_info['real_pos'][1] += dy * delta_time * main_enemy_info['speed']
+
+def destroy_tiles_occupied_by_main_enemy():
+
+    global tiles_dict
+
+    x, y, z = main_enemy_info['real_pos']
+    tile_x, tile_y, tile_z = get_tile_from_pos(x,y,z)
+
+    length = main_enemy_info['length']
+
+    half_length = length // 2
+
+    for x in range(tile_x - half_length, tile_x + half_length + 1):
+        for y in range(tile_y - half_length, tile_y + half_length + 1):
+            for z in range(tile_z - half_length, tile_z + half_length + 1):
+
+                tile = (x, y, z)
+                if tile in tiles_dict:
+                    
+                    del tiles_dict[tile]
+
+def render_main_enemy():
+    global main_enemy_info
+    enemy_x, enemy_y, enemy_z = main_enemy_info['real_pos']
+    if should_illuminated_objected_be_rendered((enemy_x, enemy_y, enemy_z)):
+        enemy_cr, enemy_cg, enemy_cb = get_adjusted_illuminated_object_color((enemy_x, enemy_y, enemy_z), main_enemy_info['color'])
+        
+
+        glPushMatrix()
+
+        glColor3f(enemy_cr, enemy_cg, enemy_cb)
+
+        glTranslatef(enemy_x, enemy_y, enemy_z)
+
+        glutSolidCube(main_enemy_info['length'] * tile_length)
+
+        glPopMatrix()
 
 def keyboardListener(key, x, y):
     """
@@ -805,7 +879,7 @@ def mouseListener(button, state, x, y):
     """
     Handles mouse inputs for firing bullets (left click) and toggling camera mode (right click).
     """
-    # Left mouse button fires a bullet
+    #Left mouse button fires a bullet
     if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
         shoot_bullet()
 
@@ -882,11 +956,13 @@ def idle():
     delta_time = new_time - current_time
     current_time = new_time
 
+    destroy_tiles_occupied_by_main_enemy()
     handlePlayerMovement()
     updateWeaponMuzzlePosition()
     move_bullets()
     calculate_drones_next_tile()
     move_drones()
+    move_main_enemy()
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
 
@@ -908,6 +984,7 @@ def showScreen():
     drawPlayer()
     render_bullets()
     render_drones()
+    render_main_enemy()
 
     # Display game info text at a fixed screen position
     draw_text(10, 770, f"A Random Fixed Position Text")
@@ -918,11 +995,13 @@ def showScreen():
 
 def loadMap():
     draw_floor()
-    draw_wall(5,90,0,50,4, 15, {'color': (0,0,1)})
-    draw_wall(40,42,0,55,4, 5, {'color': (0,1,0)})
+    draw_wall(20,90,0,50,4, 15, {'color': (0,0,1)})
+    draw_wall(40,42,0,55,4, 8, {'color': (0,1,0)})
     draw_wall(5,5,0,5,2, 15, {'color': (1,0,0)})
     draw_wall(10,50,0,2,25, 15, {'color': (0,1,0)})
     draw_wall(55,70,0,25,10, 15, {'color': (0,1,0)})
+
+    draw_main_enemy(0, 100, 8, 14, 100, 40, (1,1,0))
 
     draw_drone(10, 10, 11, (0, 0, 1), 10, 20, 40)
     draw_drone(25, 10, 11, (0, 0, 1), 10, 20, 40)
